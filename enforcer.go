@@ -931,6 +931,9 @@ func (e *Enforcer) enforce(matcher string, explains *[]string, rvals ...interfac
 			// set to no-match at first
 			matcherResults[policyIndex] = 0
 			if usePolicyIndex && !policyMatchesBucket(bucketIDs, policyIndex, requestBucket) {
+				// Only literal rules outside the request bucket are skipped here;
+				// wildcard and pattern rules are always reachable, so the skipped
+				// rule is merged as a non-match exactly like an evaluated false rule.
 				effect, explainIndex, err = e.eft.MergeEffects(effectExpr, policyEffects, matcherResults, policyIndex, policyLen)
 				if err != nil {
 					return false, err

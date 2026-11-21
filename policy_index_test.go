@@ -19,9 +19,11 @@ package casbin
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/casbin/casbin/v3/model"
+	"github.com/casbin/casbin/v3/util"
 )
 
 func newIndexTestEnforcer(t testing.TB, effect string, withEft bool) (*Enforcer, *int) {
@@ -369,5 +371,155 @@ func TestPolicyIndexResetsWhenModelChanges(t *testing.T) {
 
 	if ok, err := e.Enforce("alice", "img", "img1", "read"); err != nil || !ok {
 		t.Fatalf("after SetModel: ok=%v err=%v", ok, err)
+	}
+}
+
+func newPatternIndexEnforcer(t testing.TB) (*Enforcer, *int) {
+	t.Helper()
+
+	const effect = "some(where (p.eft == allow)) && !some(where (p.eft == deny))"
+
+	m := model.NewModel()
+	m.AddDef("r", "r", "sub, obj_type, obj, act")
+	m.AddDef("p", "p", "sub, obj_type, obj, act, eft")
+	m.AddDef("g", "g", "_, _")
+	m.AddDef("e", "e", effect)
+	m.AddDef("m", "m", "g(r.sub, p.sub) && countedGlobMatch(r.obj_type, p.obj_type) && r.obj == p.obj && r.act == p.act")
+
+	e, err := NewEnforcer(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := [][]string{
+		{"alice", "doc", "doc1", "read", "allow"},
+		{"alice", "doc", "doc2", "read", "allow"},
+		{"alice", "img", "img1", "read", "allow"},
+		// a pattern key that is neither "*" nor equal to any request key
+		{"alice", "doc-*", "doc3", "read", "deny"},
+	}
+	if _, err := e.AddPolicies(rules); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := new(int)
+	e.AddFunction("countedGlobMatch", func(args ...interface{}) (interface{}, error) {
+		*calls++
+		return util.GlobMatch(args[0].(string), args[1].(string))
+	})
+
+	return e, calls
+}
+
+func setPatternObjectTypeIndex(t testing.TB, e *Enforcer) {
+	t.Helper()
+
+	err := e.SetPolicyIndex("p", PolicyIndex{
+		RequestKey: func(rvals []interface{}) (string, bool) {
+			return rvals[1].(string), true
+		},
+		PolicyKey: func(rule []string) string {
+			return rule[1]
+		},
+		IsPatternKey: func(key string) bool {
+			return strings.Contains(key, "*")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPolicyIndexPatternKeyDenyRuleIsReachable(t *testing.T) {
+	indexed, calls := newPatternIndexEnforcer(t)
+	setPatternObjectTypeIndex(t, indexed)
+
+	unindexed, _ := newPatternIndexEnforcer(t)
+
+	request := []interface{}{"alice", "doc-secret", "doc3", "read"}
+
+	unindexedOK, _, err := unindexed.EnforceEx(request...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unindexedOK {
+		t.Fatal("unindexed enforcer must deny the request")
+	}
+
+	indexedOK, indexedExplain, err := indexed.EnforceEx(request...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexedOK {
+		t.Fatal("indexed enforcer silently skipped the pattern-key deny rule")
+	}
+	if len(indexedExplain) == 0 || indexedExplain[4] != "deny" {
+		t.Fatalf("explain should point at the deny rule, got %v", indexedExplain)
+	}
+
+	// exact buckets still skip unrelated rules; only the pattern rule is added
+	*calls = 0
+	if _, err := indexed.Enforce("alice", "doc", "doc1", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 3 {
+		t.Fatalf("doc request evaluated %d rules, want the 2 rules in its bucket plus the pattern rule: 3", *calls)
+	}
+}
+
+func TestPolicyIndexPatternKeyMatchesUnindexedDecisions(t *testing.T) {
+	indexed, _ := newPatternIndexEnforcer(t)
+	setPatternObjectTypeIndex(t, indexed)
+
+	unindexed, _ := newPatternIndexEnforcer(t)
+
+	requests := [][]interface{}{
+		{"alice", "doc", "doc1", "read"},
+		{"alice", "doc", "doc2", "read"},
+		{"alice", "doc-secret", "doc3", "read"},
+		{"alice", "doc-public", "doc3", "read"},
+		{"alice", "img", "img1", "read"},
+		{"alice", "video", "doc1", "read"},
+		{"alice", "doc", "doc1", "write"},
+	}
+
+	for _, request := range requests {
+		indexedOK, indexedExplain, err := indexed.EnforceEx(request...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unindexedOK, unindexedExplain, err := unindexed.EnforceEx(request...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if indexedOK != unindexedOK {
+			t.Fatalf("%v: indexed decision %v, unindexed %v", request, indexedOK, unindexedOK)
+		}
+		if !reflect.DeepEqual(indexedExplain, unindexedExplain) {
+			t.Fatalf("%v: indexed explain %v, unindexed %v", request, indexedExplain, unindexedExplain)
+		}
+	}
+}
+
+func TestPolicyIndexPatternKeyKeepsLiteralBucketSkipping(t *testing.T) {
+	e, calls := newPatternIndexEnforcer(t)
+	setPatternObjectTypeIndex(t, e)
+
+	// the img bucket holds one literal rule; the two doc rules and the
+	// unmatched request objects stay skipped, only pattern rules join it
+	*calls = 0
+	if _, err := e.Enforce("alice", "img", "img1", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 2 {
+		t.Fatalf("img request evaluated %d rules, want its literal rule plus the one pattern rule: 2", *calls)
+	}
+
+	e.RemovePolicyIndex("p")
+	*calls = 0
+	if _, err := e.Enforce("alice", "img", "img1", "read"); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 4 {
+		t.Fatalf("without index: evaluated %d rules, want all 4", *calls)
 	}
 }

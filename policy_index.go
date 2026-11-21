@@ -27,7 +27,8 @@ import (
 
 const (
 	wildcardPolicyBucket uint32 = ^uint32(0)
-	missingPolicyBucket  uint32 = ^uint32(1)
+	patternPolicyBucket  uint32 = ^uint32(1)
+	missingPolicyBucket  uint32 = ^uint32(2)
 )
 
 // PolicyIndex partitions the policy rules of one policy type so that Enforce
@@ -40,14 +41,19 @@ const (
 // PolicyKey returns the partition key for one policy rule. The key "*" puts
 // the rule in every partition.
 //
-// Enforce skips the matcher of a rule whose key differs from the request key.
-// The caller must guarantee that such a rule can never match the request;
-// otherwise the decision changes. This includes matchers that evaluate policy
-// fields with eval(). Rules are still merged by the configured effector, so
-// deny rules must be reachable through the request key or "*".
+// IsPatternKey reports whether a policy key is a matcher pattern rather than
+// a literal value. Pattern keys (for example glob or regex keys) may match
+// request keys that are neither "*" nor equal to the pattern, so their rules
+// cannot be confined to one partition and are evaluated for every request.
+// When IsPatternKey is nil, every non-"*" key is treated as a literal key;
+// only provide a nil callback when the indexed policy field is guaranteed to
+// contain literal values and "*". Rules are still merged by the configured
+// effector, so deny rules must be reachable through the request key, "*" or
+// a pattern key.
 type PolicyIndex struct {
-	RequestKey func(rvals []interface{}) (string, bool)
-	PolicyKey  func(rule []string) string
+	RequestKey   func(rvals []interface{}) (string, bool)
+	PolicyKey    func(rule []string) string
+	IsPatternKey func(key string) bool
 }
 
 // SetPolicyIndex installs a policy partition for ptype. It replaces an
@@ -68,9 +74,10 @@ func (e *Enforcer) setPolicyIndex(ptype string, rType string, index PolicyIndex)
 	}
 
 	e.policyIndexes.Store(ptype, &policyIndex{
-		rType:      rType,
-		requestKey: index.RequestKey,
-		policyKey:  index.PolicyKey,
+		rType:        rType,
+		requestKey:   index.RequestKey,
+		policyKey:    index.PolicyKey,
+		isPatternKey: index.IsPatternKey,
 	})
 	return nil
 }
@@ -145,9 +152,10 @@ func (e *Enforcer) getPolicyIndex(ptype string, rType string) *policyIndex {
 }
 
 type policyIndex struct {
-	rType      string
-	requestKey func(rvals []interface{}) (string, bool)
-	policyKey  func(rule []string) string
+	rType        string
+	requestKey   func(rvals []interface{}) (string, bool)
+	policyKey    func(rule []string) string
+	isPatternKey func(key string) bool
 
 	mu        sync.Mutex
 	built     bool
@@ -171,6 +179,10 @@ func (idx *policyIndex) ensureBuilt(ast *model.Assertion) []uint32 {
 		key := idx.policyKey(rule)
 		if key == "*" {
 			bucketIDs[i] = wildcardPolicyBucket
+			continue
+		}
+		if idx.isPatternKey != nil && idx.isPatternKey(key) {
+			bucketIDs[i] = patternPolicyBucket
 			continue
 		}
 
@@ -218,5 +230,5 @@ func policyMatchesBucket(bucketIDs []uint32, policyIndex int, bucket uint32) boo
 		return true
 	}
 	id := bucketIDs[policyIndex]
-	return id == wildcardPolicyBucket || id == bucket
+	return id == wildcardPolicyBucket || id == patternPolicyBucket || id == bucket
 }
