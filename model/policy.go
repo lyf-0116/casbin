@@ -19,10 +19,8 @@ package model
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
-	"github.com/casbin/casbin/v3/constant"
 	"github.com/casbin/casbin/v3/rbac"
 	"github.com/casbin/casbin/v3/util"
 )
@@ -207,26 +205,7 @@ func (model Model) AddPolicy(sec string, ptype string, rule []string) error {
 	assertion.Policy = append(assertion.Policy, rule)
 	assertion.PolicyMap[strings.Join(rule, DefaultSep)] = len(model[sec][ptype].Policy) - 1
 	assertion.PolicyVersion++
-
-	hasPriority := false
-	if _, ok := assertion.FieldIndexMap[constant.PriorityIndex]; ok {
-		hasPriority = true
-	}
-	if sec == "p" && hasPriority {
-		if idxInsert, err := strconv.Atoi(rule[assertion.FieldIndexMap[constant.PriorityIndex]]); err == nil {
-			i := len(assertion.Policy) - 1
-			for ; i > 0; i-- {
-				idx, err := strconv.Atoi(assertion.Policy[i-1][assertion.FieldIndexMap[constant.PriorityIndex]])
-				if err != nil || idx <= idxInsert {
-					break
-				}
-				assertion.Policy[i] = assertion.Policy[i-1]
-				assertion.PolicyMap[strings.Join(assertion.Policy[i-1], DefaultSep)]++
-			}
-			assertion.Policy[i] = rule
-			assertion.PolicyMap[strings.Join(rule, DefaultSep)] = i
-		}
-	}
+	model.normalizePolicyOrder(sec, ptype)
 	return nil
 }
 
@@ -299,6 +278,7 @@ func (model Model) UpdatePolicy(sec string, ptype string, oldRule []string, newR
 	delete(model[sec][ptype].PolicyMap, oldPolicy)
 	model[sec][ptype].PolicyMap[strings.Join(newRule, DefaultSep)] = index
 	model[sec][ptype].PolicyVersion++
+	model.normalizePolicyOrder(sec, ptype)
 
 	return true, nil
 }
@@ -333,6 +313,7 @@ func (model Model) UpdatePolicies(sec string, ptype string, oldRules, newRules [
 		assertion.PolicyMap[strings.Join(newRule, DefaultSep)] = indexes[i]
 	}
 	assertion.PolicyVersion++
+	model.normalizePolicyOrder(sec, ptype)
 
 	return true, nil
 }

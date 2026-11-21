@@ -20,6 +20,7 @@ package casbin
 import (
 	"fmt"
 
+	"github.com/casbin/casbin/v3/constant"
 	Err "github.com/casbin/casbin/v3/errors"
 	"github.com/casbin/casbin/v3/log"
 	"github.com/casbin/casbin/v3/model"
@@ -568,4 +569,7 @@ func (e *Enforcer) SetFieldIndex(ptype string, field string, index int) {
 	assertion.FieldIndexMutex.Lock()
 	assertion.FieldIndexMap[field] = index
 	assertion.FieldIndexMutex.Unlock()
+	if field == constant.PriorityIndex {
+		_ = e.model.SortPoliciesByPriority()
+	}
 }

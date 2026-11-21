@@ -627,6 +627,34 @@ func TestPriorityExplicit(t *testing.T) {
 	})
 }
 
+func TestPriorityExplicitUpdatePolicyReorders(t *testing.T) {
+	e, _ := NewEnforcer("examples/priority_model_explicit.conf", "examples/priority_policy_explicit.csv")
+
+	if _, err := e.AddPolicy("1", "bob", "data2", "write", "deny"); err != nil {
+		t.Fatalf("AddPolicy: %v", err)
+	}
+	testEnforce(t, e, "bob", "data2", "write", false)
+
+	// Moving the deny rule below the priority 10 allow rule must reorder the
+	// policy slice; otherwise enforcement still short-circuits on the stale
+	// first rule.
+	if _, err := e.UpdatePolicy(
+		[]string{"1", "bob", "data2", "write", "deny"},
+		[]string{"20", "bob", "data2", "write", "deny"},
+	); err != nil {
+		t.Fatalf("UpdatePolicy: %v", err)
+	}
+	testEnforce(t, e, "bob", "data2", "write", true)
+
+	if _, err := e.UpdatePolicies(
+		[][]string{{"20", "bob", "data2", "write", "deny"}},
+		[][]string{{"1", "bob", "data2", "write", "deny"}},
+	); err != nil {
+		t.Fatalf("UpdatePolicies: %v", err)
+	}
+	testEnforce(t, e, "bob", "data2", "write", false)
+}
+
 func TestFailedToLoadPolicy(t *testing.T) {
 	e, _ := NewEnforcer("examples/rbac_with_pattern_model.conf", "examples/rbac_with_pattern_policy.csv")
 	e.AddNamedMatchingFunc("g2", "matchingFunc", util.KeyMatch2)

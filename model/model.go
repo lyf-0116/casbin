@@ -350,24 +350,59 @@ func (model Model) SortPoliciesByPriority() error {
 		if err != nil {
 			continue
 		}
-		policies := assertion.Policy
-		sort.SliceStable(policies, func(i, j int) bool {
-			p1, err := strconv.Atoi(policies[i][priorityIndex])
-			if err != nil {
-				return true
-			}
-			p2, err := strconv.Atoi(policies[j][priorityIndex])
-			if err != nil {
-				return true
-			}
-			return p1 < p2
-		})
-		for i, policy := range assertion.Policy {
-			assertion.PolicyMap[strings.Join(policy, ",")] = i
-		}
+		sortPoliciesByPriority(assertion, priorityIndex)
 		assertion.PolicyVersion++
 	}
 	return nil
+}
+
+// normalizePolicyOrder restores the ordering invariant of an explicit-priority
+// policy type. Policy order is part of the priority semantics: enforcement
+// short-circuits on the first decisive rule, so every write path must leave the
+// slice sorted and PolicyMap pointing at the new indexes.
+func (model Model) normalizePolicyOrder(sec string, ptype string) {
+	if sec != "p" {
+		return
+	}
+	assertion, ok := model[sec][ptype]
+	if !ok {
+		return
+	}
+	priorityIndex, err := model.GetFieldIndex(ptype, constant.PriorityIndex)
+	if err != nil {
+		return
+	}
+	sortPoliciesByPriority(assertion, priorityIndex)
+}
+
+func policyPriority(rule []string, priorityIndex int) (int, bool) {
+	if priorityIndex < 0 || priorityIndex >= len(rule) {
+		return 0, false
+	}
+	priority, err := strconv.Atoi(rule[priorityIndex])
+	if err != nil {
+		return 0, false
+	}
+	return priority, true
+}
+
+func sortPoliciesByPriority(assertion *Assertion, priorityIndex int) {
+	sort.SliceStable(assertion.Policy, func(i, j int) bool {
+		p1, ok1 := policyPriority(assertion.Policy[i], priorityIndex)
+		p2, ok2 := policyPriority(assertion.Policy[j], priorityIndex)
+		if !ok1 {
+			return false
+		}
+		if !ok2 {
+			return true
+		}
+		return p1 < p2
+	})
+
+	assertion.PolicyMap = make(map[string]int, len(assertion.Policy))
+	for i, policy := range assertion.Policy {
+		assertion.PolicyMap[strings.Join(policy, DefaultSep)] = i
+	}
 }
 
 var (
