@@ -272,6 +272,11 @@ func TestKeyMatch4(t *testing.T) {
 	testKeyMatch4(t, "/parent/123/child/123", "/parent/{id}/child/{id}", true)
 	testKeyMatch4(t, "/parent/123/child/456", "/parent/{id}/child/{id}", false)
 
+	testKeyMatch4(t, "/parent/123_123", "/parent/{id}_{id}", true)
+	testKeyMatch4(t, "/parent/123_456", "/parent/{id}_{id}", false)
+	testKeyMatch4(t, "/11", "/{id}{id}", true)
+	testKeyMatch4(t, "/12", "/{id}{id}", false)
+
 	testKeyMatch4(t, "/parent/123/child/123", "/parent/{id}/child/{another_id}", true)
 	testKeyMatch4(t, "/parent/123/child/456", "/parent/{id}/child/{another_id}", true)
 

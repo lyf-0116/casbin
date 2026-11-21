@@ -38,7 +38,11 @@ import (
 var (
 	keyMatch2Re = regexp.MustCompile(`:[^/]+`)
 	keyMatch3Re = regexp.MustCompile(`\{[^/]+\}`)
-	keyMatch4Re = regexp.MustCompile(`{([^/]+)}`)
+	// keyMatch4Re is non-greedy for the same reason as keyGet3Re1: a greedy
+	// [^/]+ swallows "}{" between adjacent tokens, so "/{id}{id}" would compile
+	// to a single capture group named "id}{id" and the repeated-token check in
+	// keyMatch4 would never see the two "{id}" occurrences.
+	keyMatch4Re = regexp.MustCompile(`{([^/]+?)}`)
 	keyMatch5Re = regexp.MustCompile(`\{[^/]+\}`)
 	keyGet2Re1  = regexp.MustCompile(`:[^/]+`)
 	keyGet3Re1  = regexp.MustCompile(`\{[^/]+?\}`) // non-greedy match of `{...}` to support multiple {} in `/.../`
