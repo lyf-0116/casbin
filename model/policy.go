@@ -148,29 +148,36 @@ func (model Model) GetFilteredPolicy(sec string, ptype string, fieldIndex int, f
 
 // HasPolicyEx determines whether a model has the specified policy rule with error.
 func (model Model) HasPolicyEx(sec string, ptype string, rule []string) (bool, error) {
+	if err := model.ValidateRule(sec, ptype, rule); err != nil {
+		return false, err
+	}
+	return model.HasPolicy(sec, ptype, rule)
+}
+
+// ValidateRule verifies that a rule carries the fields declared by the
+// assertion of the given section and policy type. For "g" rules extra fields
+// are allowed as caller custom data, while every declared field (including
+// conditional role parameters) must be present.
+func (model Model) ValidateRule(sec string, ptype string, rule []string) error {
 	assertion, err := model.GetAssertion(sec, ptype)
 	if err != nil {
-		return false, err
+		return err
 	}
 	switch sec {
 	case "p":
 		if len(rule) != len(assertion.Tokens) {
-			return false, fmt.Errorf(
+			return fmt.Errorf(
 				"invalid policy rule size: expected %d, got %d, rule: %v",
-				len(model["p"][ptype].Tokens),
+				len(assertion.Tokens),
 				len(rule),
 				rule)
 		}
 	case "g":
-		if len(rule) < len(assertion.Tokens) {
-			return false, fmt.Errorf(
-				"invalid policy rule size: expected %d, got %d, rule: %v",
-				len(model["g"][ptype].Tokens),
-				len(rule),
-				rule)
-		}
+		return assertion.ValidateGroupingRule(rule)
+	default:
+		return fmt.Errorf("unsupported section %s for rule validation", sec)
 	}
-	return model.HasPolicy(sec, ptype, rule)
+	return nil
 }
 
 // HasPolicy determines whether a model has the specified policy rule.

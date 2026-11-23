@@ -50,6 +50,9 @@ func (d *DistributedEnforcer) AddPoliciesSelf(shouldPersist func() bool, sec str
 
 	d.m.Lock()
 	defer d.m.Unlock()
+	if err = d.validateRules(sec, ptype, rules...); err != nil {
+		return nil, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		var noExistsPolicy [][]string
 		for _, rule := range rules {
@@ -90,6 +93,9 @@ func (d *DistributedEnforcer) RemovePoliciesSelf(shouldPersist func() bool, sec 
 
 	d.m.Lock()
 	defer d.m.Unlock()
+	if err = d.validateRules(sec, ptype, rules...); err != nil {
+		return nil, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		if err = d.adapter.(persist.BatchAdapter).RemovePolicies(sec, ptype, rules); err != nil {
 			if err.Error() != notImplemented {
@@ -120,6 +126,9 @@ func (d *DistributedEnforcer) RemoveFilteredPolicySelf(shouldPersist func() bool
 
 	d.m.Lock()
 	defer d.m.Unlock()
+	if err = d.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
+		return nil, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		if err = d.adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...); err != nil {
 			if err.Error() != notImplemented {
@@ -171,6 +180,9 @@ func (d *DistributedEnforcer) UpdatePolicySelf(shouldPersist func() bool, sec st
 
 	d.m.Lock()
 	defer d.m.Unlock()
+	if err = d.validateRules(sec, ptype, oldRule, newRule); err != nil {
+		return false, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		err = d.adapter.(persist.UpdatableAdapter).UpdatePolicy(sec, ptype, oldRule, newRule)
 		if err != nil {
@@ -203,6 +215,12 @@ func (d *DistributedEnforcer) UpdatePoliciesSelf(shouldPersist func() bool, sec 
 
 	d.m.Lock()
 	defer d.m.Unlock()
+	if err = d.validateRules(sec, ptype, oldRules...); err != nil {
+		return false, err
+	}
+	if err = d.validateRules(sec, ptype, newRules...); err != nil {
+		return false, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		err = d.adapter.(persist.UpdatableAdapter).UpdatePolicies(sec, ptype, oldRules, newRules)
 		if err != nil {
@@ -239,6 +257,12 @@ func (d *DistributedEnforcer) UpdateFilteredPoliciesSelf(shouldPersist func() bo
 		oldRules [][]string
 		err      error
 	)
+	if err = d.validateRules(sec, ptype, newRules...); err != nil {
+		return false, err
+	}
+	if err = d.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
+		return false, err
+	}
 	if shouldPersist != nil && shouldPersist() {
 		oldRules, err = d.adapter.(persist.UpdatableAdapter).UpdateFilteredPolicies(sec, ptype, newRules, fieldIndex, fieldValues...)
 		if err != nil {

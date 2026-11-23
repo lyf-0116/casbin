@@ -418,6 +418,10 @@ func (e *ContextEnforcer) SelfUpdatePoliciesCtx(ctx context.Context, sec string,
 func (e *ContextEnforcer) addPolicyWithoutNotifyCtx(ctx context.Context, sec string, ptype string, rule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
 
+	if err := e.validateRules(sec, ptype, rule); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
 	}
@@ -453,6 +457,10 @@ func (e *ContextEnforcer) addPolicyWithoutNotifyCtx(ctx context.Context, sec str
 // addPoliciesWithoutNotifyCtx adds rules to the current policy with context.
 func (e *ContextEnforcer) addPoliciesWithoutNotifyCtx(ctx context.Context, sec string, ptype string, rules [][]string, autoRemoveRepeat bool) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.AddPolicies(sec, ptype, rules)
@@ -497,6 +505,10 @@ func (e *ContextEnforcer) addPoliciesWithoutNotifyCtx(ctx context.Context, sec s
 func (e *ContextEnforcer) removePolicyWithoutNotifyCtx(ctx context.Context, sec string, ptype string, rule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
 
+	if err := e.validateRules(sec, ptype, rule); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.RemovePolicies(sec, ptype, [][]string{rule})
 	}
@@ -527,6 +539,10 @@ func (e *ContextEnforcer) removePolicyWithoutNotifyCtx(ctx context.Context, sec 
 // removePoliciesWithoutNotifyCtx removes rules from the current policy with context.
 func (e *ContextEnforcer) removePoliciesWithoutNotifyCtx(ctx context.Context, sec string, ptype string, rules [][]string) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
 
 	if hasPolicies, err := e.model.HasPolicies(sec, ptype, rules); !hasPolicies || err != nil {
 		return hasPolicies, err
@@ -566,6 +582,10 @@ func (e *ContextEnforcer) removeFilteredPolicyWithoutNotifyCtx(ctx context.Conte
 		return false, Err.ErrInvalidFieldValuesParameter
 	}
 
+	if err := e.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
 	}
@@ -596,6 +616,10 @@ func (e *ContextEnforcer) removeFilteredPolicyWithoutNotifyCtx(ctx context.Conte
 // updatePolicyWithoutNotifyCtx updates a policy rule in the current policy with context.
 func (e *ContextEnforcer) updatePolicyWithoutNotifyCtx(ctx context.Context, sec string, ptype string, oldRule, newRule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, oldRule, newRule); err != nil {
+		return false, err
+	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.UpdatePolicy(sec, ptype, oldRule, newRule)
@@ -632,6 +656,13 @@ func (e *ContextEnforcer) updatePoliciesWithoutNotifyCtx(ctx context.Context, se
 
 	if len(newRules) != len(oldRules) {
 		return false, fmt.Errorf("the length of oldRules should be equal to the length of newRules, but got the length of oldRules is %d, the length of newRules is %d", len(oldRules), len(newRules))
+	}
+
+	if err := e.validateRules(sec, ptype, oldRules...); err != nil {
+		return false, err
+	}
+	if err := e.validateRules(sec, ptype, newRules...); err != nil {
+		return false, err
 	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
@@ -828,6 +859,13 @@ func (e *ContextEnforcer) updateFilteredPoliciesWithoutNotifyCtx(ctx context.Con
 	)
 
 	if _, err = e.model.GetAssertion(sec, ptype); err != nil {
+		return oldRules, err
+	}
+
+	if err = e.validateRules(sec, ptype, newRules...); err != nil {
+		return oldRules, err
+	}
+	if err = e.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
 		return oldRules, err
 	}
 

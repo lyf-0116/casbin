@@ -18,8 +18,7 @@
 package model
 
 import (
-	"errors"
-	"strings"
+	"fmt"
 	"sync"
 
 	"github.com/casbin/casbin/v3/rbac"
@@ -41,16 +40,35 @@ type Assertion struct {
 	FieldIndexMutex sync.RWMutex
 }
 
+// ruleSize returns the number of fields a rule of this assertion must have.
+// For role definitions the parameters declared in parentheses (ParamsTokens)
+// are part of the stored rule, so the size is the sum of Tokens and
+// ParamsTokens. Counting underscores in the assertion text gives the same
+// number, but underscores inside parameter expressions would be miscounted,
+// therefore the declaration is the single source of truth.
+func (ast *Assertion) ruleSize() int {
+	return len(ast.Tokens) + len(ast.ParamsTokens)
+}
+
+// ValidateGroupingRule verifies that a grouping policy rule carries every
+// field declared by the role definition. Extra fields stay allowed as caller
+// custom data, matching the long-standing tolerant behavior for non-conditional
+// role definitions.
+func (ast *Assertion) ValidateGroupingRule(rule []string) error {
+	required := ast.ruleSize()
+	if len(rule) < required {
+		return fmt.Errorf("grouping policy elements do not meet role definition: expected at least %d fields, got %d, rule: %v", required, len(rule), rule)
+	}
+	return nil
+}
+
 func (ast *Assertion) buildIncrementalRoleLinks(rm rbac.RoleManager, op PolicyOp, rules [][]string) error {
 	ast.RM = rm
-	count := strings.Count(ast.Value, "_")
-	if count < 2 {
-		return errors.New("the number of \"_\" in role definition should be at least 2")
-	}
+	count := len(ast.Tokens)
 
 	for _, rule := range rules {
-		if len(rule) < count {
-			return errors.New("grouping policy elements do not meet role definition")
+		if err := ast.ValidateGroupingRule(rule); err != nil {
+			return err
 		}
 		if len(rule) > count {
 			rule = rule[:count]
@@ -73,13 +91,10 @@ func (ast *Assertion) buildIncrementalRoleLinks(rm rbac.RoleManager, op PolicyOp
 
 func (ast *Assertion) buildRoleLinks(rm rbac.RoleManager) error {
 	ast.RM = rm
-	count := strings.Count(ast.Value, "_")
-	if count < 2 {
-		return errors.New("the number of \"_\" in role definition should be at least 2")
-	}
+	count := len(ast.Tokens)
 	for _, rule := range ast.Policy {
-		if len(rule) < count {
-			return errors.New("grouping policy elements do not meet role definition")
+		if err := ast.ValidateGroupingRule(rule); err != nil {
+			return err
 		}
 		if len(rule) > count {
 			rule = rule[:count]
@@ -95,17 +110,10 @@ func (ast *Assertion) buildRoleLinks(rm rbac.RoleManager) error {
 
 func (ast *Assertion) buildIncrementalConditionalRoleLinks(condRM rbac.ConditionalRoleManager, op PolicyOp, rules [][]string) error {
 	ast.CondRM = condRM
-	count := strings.Count(ast.Value, "_")
-	if count < 2 {
-		return errors.New("the number of \"_\" in role definition should be at least 2")
-	}
 
 	for _, rule := range rules {
-		if len(rule) < count {
-			return errors.New("grouping policy elements do not meet role definition")
-		}
-		if len(rule) > count {
-			rule = rule[:count]
+		if err := ast.ValidateGroupingRule(rule); err != nil {
+			return err
 		}
 
 		var err error
@@ -127,16 +135,9 @@ func (ast *Assertion) buildIncrementalConditionalRoleLinks(condRM rbac.Condition
 
 func (ast *Assertion) buildConditionalRoleLinks(condRM rbac.ConditionalRoleManager) error {
 	ast.CondRM = condRM
-	count := strings.Count(ast.Value, "_")
-	if count < 2 {
-		return errors.New("the number of \"_\" in role definition should be at least 2")
-	}
 	for _, rule := range ast.Policy {
-		if len(rule) < count {
-			return errors.New("grouping policy elements do not meet role definition")
-		}
-		if len(rule) > count {
-			rule = rule[:count]
+		if err := ast.ValidateGroupingRule(rule); err != nil {
+			return err
 		}
 
 		domainRule := rule[2:len(ast.Tokens)]

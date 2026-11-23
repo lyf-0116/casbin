@@ -38,6 +38,38 @@ func (e *Enforcer) shouldNotify() bool {
 	return e.watcher != nil && e.autoNotifyWatcher
 }
 
+// validateRules checks rule sizes against the model declaration before any
+// state change or persistence happens. Validating up front prevents
+// half-written rules from entering the in-memory policy and being saved to
+// storage, where they would make the next policy load fail.
+func (e *Enforcer) validateRules(sec string, ptype string, rules ...[]string) error {
+	for _, rule := range rules {
+		if err := e.model.ValidateRule(sec, ptype, rule); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFilteredRule validates the field window used by filtered operations:
+// the filter itself only covers a suffix of a rule, but it must not reach past
+// the fields declared by the assertion.
+func (e *Enforcer) validateFilteredRule(sec string, ptype string, fieldIndex int, fieldValues []string) error {
+	assertion, err := e.model.GetAssertion(sec, ptype)
+	if err != nil {
+		return err
+	}
+	required := len(assertion.Tokens)
+	if sec == "g" {
+		required += len(assertion.ParamsTokens)
+	}
+	if fieldIndex < 0 || fieldIndex+len(fieldValues) > required {
+		return fmt.Errorf("invalid field filter: filter range [%d, %d) exceeds rule size %d for %s %s",
+			fieldIndex, fieldIndex+len(fieldValues), required, sec, ptype)
+	}
+	return nil
+}
+
 // validateConstraintsForGroupingPolicy validates constraints for grouping policy changes.
 // It returns an error if constraint validation fails.
 func (e *Enforcer) validateConstraintsForGroupingPolicy() error {
@@ -47,6 +79,10 @@ func (e *Enforcer) validateConstraintsForGroupingPolicy() error {
 // addPolicy adds a rule to the current policy.
 func (e *Enforcer) addPolicyWithoutNotify(sec string, ptype string, rule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, rule); err != nil {
+		return false, err
+	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
@@ -90,6 +126,10 @@ func (e *Enforcer) addPolicyWithoutNotify(sec string, ptype string, rule []strin
 // Otherwise, false is returned directly.
 func (e *Enforcer) addPoliciesWithoutNotify(sec string, ptype string, rules [][]string, autoRemoveRepeat bool) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.AddPolicies(sec, ptype, rules)
@@ -139,6 +179,10 @@ func (e *Enforcer) addPoliciesWithoutNotify(sec string, ptype string, rules [][]
 func (e *Enforcer) removePolicyWithoutNotify(sec string, ptype string, rule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
 
+	if err := e.validateRules(sec, ptype, rule); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.RemovePolicies(sec, ptype, [][]string{rule})
 	}
@@ -173,6 +217,10 @@ func (e *Enforcer) removePolicyWithoutNotify(sec string, ptype string, rule []st
 
 func (e *Enforcer) updatePolicyWithoutNotify(sec string, ptype string, oldRule []string, newRule []string) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, oldRule, newRule); err != nil {
+		return false, err
+	}
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.UpdatePolicy(sec, ptype, oldRule, newRule)
@@ -216,6 +264,13 @@ func (e *Enforcer) updatePoliciesWithoutNotify(sec string, ptype string, oldRule
 		return false, fmt.Errorf("the length of oldRules should be equal to the length of newRules, but got the length of oldRules is %d, the length of newRules is %d", len(oldRules), len(newRules))
 	}
 
+	if err := e.validateRules(sec, ptype, oldRules...); err != nil {
+		return false, err
+	}
+	if err := e.validateRules(sec, ptype, newRules...); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.UpdatePolicies(sec, ptype, oldRules, newRules)
 	}
@@ -255,6 +310,10 @@ func (e *Enforcer) updatePoliciesWithoutNotify(sec string, ptype string, oldRule
 // removePolicies removes rules from the current policy.
 func (e *Enforcer) removePoliciesWithoutNotify(sec string, ptype string, rules [][]string) (bool, error) {
 	defer e.bumpPolicyVersion()
+
+	if err := e.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
 
 	if hasPolicies, err := e.model.HasPolicies(sec, ptype, rules); !hasPolicies || err != nil {
 		return hasPolicies, err
@@ -299,6 +358,10 @@ func (e *Enforcer) removeFilteredPolicyWithoutNotify(sec string, ptype string, f
 		return false, Err.ErrInvalidFieldValuesParameter
 	}
 
+	if err := e.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
+		return false, err
+	}
+
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
 		return true, e.dispatcher.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
 	}
@@ -340,6 +403,13 @@ func (e *Enforcer) updateFilteredPoliciesWithoutNotify(sec string, ptype string,
 	)
 
 	if _, err = e.model.GetAssertion(sec, ptype); err != nil {
+		return oldRules, err
+	}
+
+	if err = e.validateRules(sec, ptype, newRules...); err != nil {
+		return oldRules, err
+	}
+	if err = e.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
 		return oldRules, err
 	}
 

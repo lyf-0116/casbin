@@ -120,6 +120,10 @@ func (tx *Transaction) bufferAdd(sec string, ptype string, rules [][]string) (bo
 		return false, nil
 	}
 
+	if err := tx.enforcer.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
+
 	bufferedModel, err := tx.getBufferedModel()
 	if err != nil {
 		return false, err
@@ -164,6 +168,10 @@ func (tx *Transaction) bufferRemove(sec string, ptype string, rules [][]string) 
 		return false, nil
 	}
 
+	if err := tx.enforcer.validateRules(sec, ptype, rules...); err != nil {
+		return false, err
+	}
+
 	bufferedModel, err := tx.getBufferedModel()
 	if err != nil {
 		return false, err
@@ -201,6 +209,10 @@ func (tx *Transaction) bufferRemove(sec string, ptype string, rules [][]string) 
 func (tx *Transaction) bufferRemoveFiltered(sec string, ptype string, fieldIndex int, fieldValues []string) (bool, error) {
 	tx.mutex.Lock()
 	defer tx.mutex.Unlock()
+
+	if err := tx.enforcer.validateFilteredRule(sec, ptype, fieldIndex, fieldValues); err != nil {
+		return false, err
+	}
 
 	bufferedModel, err := tx.getBufferedModel()
 	if err != nil {
@@ -246,6 +258,13 @@ func (tx *Transaction) bufferUpdate(sec string, ptype string, oldRules [][]strin
 			return false, err
 		}
 		return false, nil
+	}
+
+	if err := tx.enforcer.validateRules(sec, ptype, oldRules...); err != nil {
+		return false, err
+	}
+	if err := tx.enforcer.validateRules(sec, ptype, newRules...); err != nil {
+		return false, err
 	}
 
 	bufferedModel, err := tx.getBufferedModel()
