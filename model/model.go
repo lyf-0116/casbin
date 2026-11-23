@@ -93,17 +93,11 @@ func (model Model) AddDef(sec string, key string, value string) bool {
 		ast.ParamsTokens = getParamsToken(ast.Value)
 		ast.Tokens = strings.Split(ast.Value, ",")
 		ast.Tokens = ast.Tokens[:len(ast.Tokens)-len(ast.ParamsTokens)]
+	case "c":
+		// Constraints have their own syntax (e.g. sodMax(["role1"], 1)) and are
+		// parsed by dedicated parsers, so the value must be kept verbatim.
 	default:
-		ast.Value = util.RemoveComments(util.EscapeAssertion(ast.Value))
-	}
-
-	if sec == "m" {
-		// Escape backslashes in string literals to match CSV parsing behavior
-		ast.Value = util.EscapeStringLiterals(ast.Value)
-
-		if strings.Contains(ast.Value, "in") {
-			ast.Value = strings.ReplaceAll(strings.ReplaceAll(ast.Value, "[", "("), "]", ")")
-		}
+		ast.Value = util.NormalizeExpression(ast.Value)
 	}
 
 	_, ok := model[sec]

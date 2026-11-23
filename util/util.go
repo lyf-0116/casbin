@@ -29,6 +29,48 @@ var evalReg = regexp.MustCompile(`\beval\((?P<rule>[^)]*)\)`)
 
 var escapeAssertionRegex = regexp.MustCompile(`([()\s|&,=!><+\-*/]|^)((r|p)[0-9]*)\.`)
 
+// NormalizeExpression turns a raw matcher or sub-rule expression into the form
+// expected by govaluate. It is the single normalization pipeline shared by model
+// matchers, runtime matchers, policy sub-rules (eval arguments) and management
+// queries:
+//  1. strip "#" comments that are not part of a quoted literal,
+//  2. rewrite r./p. attribute access into govaluate variable names (quoted
+//     literals kept untouched),
+//  3. double backslashes inside quoted literals so govaluate's escape handling
+//     matches the literal semantics of CSV policy values,
+//  4. rewrite square brackets of "in" clauses (e.g. x in ['a', 'b']) into
+//     parentheses, leaving brackets inside quoted literals untouched.
+func NormalizeExpression(expr string) string {
+	return RewriteInBrackets(EscapeStringLiterals(EscapeAssertion(RemoveComments(expr))))
+}
+
+// RewriteInBrackets rewrites the square brackets used by "in" clauses into the
+// parentheses supported by govaluate, for example r.obj in ['a', 'b'] becomes
+// r.obj in ('a', 'b'). Brackets inside quoted string literals are preserved.
+func RewriteInBrackets(expr string) string {
+	if !strings.ContainsAny(expr, "[]") {
+		return expr
+	}
+
+	var b strings.Builder
+	b.Grow(len(expr))
+	for i := 0; i < len(expr); i++ {
+		switch expr[i] {
+		case '"', '\'':
+			end := stringLiteralEnd(expr, i)
+			b.WriteString(expr[i:end])
+			i = end - 1
+		case '[':
+			b.WriteByte('(')
+		case ']':
+			b.WriteByte(')')
+		default:
+			b.WriteByte(expr[i])
+		}
+	}
+	return b.String()
+}
+
 func JsonToMap(jsonStr string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	err := json.Unmarshal([]byte(jsonStr), &result)

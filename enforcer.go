@@ -828,8 +828,7 @@ func (e *Enforcer) enforce(matcher string, explains *[]string, rvals ...interfac
 	if matcher == "" {
 		expString = e.model["m"][mType].Value
 	} else {
-		// For custom matchers provided at runtime, escape backslashes in string literals
-		expString = util.EscapeStringLiterals(util.RemoveComments(util.EscapeAssertion(matcher)))
+		expString = util.NormalizeExpression(matcher)
 	}
 
 	rTokens := make(map[string]int, len(e.model["r"][rType].Tokens))
@@ -1205,7 +1204,7 @@ func generateEvalFunction(functions map[string]govaluate.ExpressionFunction, par
 		if !ok {
 			return nil, errors.New("argument of eval(subrule string) must be a string")
 		}
-		expression = util.EscapeAssertion(expression)
+		expression = util.NormalizeExpression(expression)
 		expr, err := govaluate.NewEvaluableExpressionWithFunctions(expression, functions)
 		if err != nil {
 			return nil, fmt.Errorf("error while parsing eval parameter: %s, %s", expression, err.Error())

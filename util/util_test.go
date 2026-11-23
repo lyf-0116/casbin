@@ -286,3 +286,49 @@ func TestEscapeStringLiterals(t *testing.T) {
 	testEscapeStringLiterals(t, `'hello'`, `'hello'`)
 	testEscapeStringLiterals(t, `"world"`, `"world"`)
 }
+
+func testRewriteInBrackets(t *testing.T, input string, expected string) {
+	t.Helper()
+	result := RewriteInBrackets(input)
+	if result != expected {
+		t.Errorf("RewriteInBrackets(%q) = %q, expected %q", input, result, expected)
+	}
+}
+
+func TestRewriteInBrackets(t *testing.T) {
+	// Brackets of in clauses are rewritten into parentheses.
+	testRewriteInBrackets(t, "r.obj in ['data2', 'data3']", "r.obj in ('data2', 'data3')")
+	testRewriteInBrackets(t, `r.obj in ["data2"]`, `r.obj in ("data2")`)
+	// Expressions without brackets are untouched.
+	testRewriteInBrackets(t, "r.obj in ('data2', 'data3')", "r.obj in ('data2', 'data3')")
+	testRewriteInBrackets(t, "r.sub == p.sub", "r.sub == p.sub")
+	// Brackets inside quoted literals must be preserved.
+	testRewriteInBrackets(t, "r.obj == 'x[0]' && r.act in ['read']", "r.obj == 'x[0]' && r.act in ('read')")
+	testRewriteInBrackets(t, `r.obj == "a[b]"`, `r.obj == "a[b]"`)
+}
+
+func testNormalizeExpression(t *testing.T, input string, expected string) {
+	t.Helper()
+	result := NormalizeExpression(input)
+	if result != expected {
+		t.Errorf("NormalizeExpression(%q) = %q, expected %q", input, result, expected)
+	}
+}
+
+func TestNormalizeExpression(t *testing.T) {
+	// Comment stripping, dot escaping, backslash doubling and bracket rewriting
+	// are applied in one consistent pass.
+	testNormalizeExpression(t,
+		"r.obj in ['a\\b'] # tail comment",
+		`r_obj in ('a\\b')`)
+	testNormalizeExpression(t,
+		"r.sub == p.sub && r.obj == 'x[0]'",
+		"r_sub == p_sub && r_obj == 'x[0]'")
+	testNormalizeExpression(t,
+		`keyMatch(r.obj, '\1\2') # comment`,
+		`keyMatch(r_obj, '\\1\\2')`)
+	// A "#" inside a quoted literal is not a comment.
+	testNormalizeExpression(t,
+		`r.act == "#read"`,
+		`r_act == "#read"`)
+}

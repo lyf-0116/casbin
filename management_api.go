@@ -147,7 +147,7 @@ func (e *Enforcer) GetFilteredNamedPolicyWithMatcher(ptype string, matcher strin
 	if matcher == "" {
 		return res, fmt.Errorf("matcher is empty")
 	} else {
-		expString = util.RemoveComments(util.EscapeAssertion(matcher))
+		expString = util.NormalizeExpression(matcher)
 	}
 
 	var expression *govaluate.EvaluableExpression
