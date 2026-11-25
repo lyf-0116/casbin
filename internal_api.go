@@ -18,16 +18,13 @@
 package casbin
 
 import (
+	"context"
 	"fmt"
 
 	Err "github.com/casbin/casbin/v3/errors"
 	"github.com/casbin/casbin/v3/log"
 	"github.com/casbin/casbin/v3/model"
 	"github.com/casbin/casbin/v3/persist"
-)
-
-const (
-	notImplemented = "not implemented"
 )
 
 func (e *Enforcer) shouldPersist() bool {
@@ -46,43 +43,37 @@ func (e *Enforcer) validateConstraintsForGroupingPolicy() error {
 
 // addPolicy adds a rule to the current policy.
 func (e *Enforcer) addPolicyWithoutNotify(sec string, ptype string, rule []string) (bool, error) {
+	result, err := e.addPolicyWithoutNotifyResult(sec, ptype, rule)
+	return result.added, err
+}
+
+func (e *Enforcer) addPolicyWithoutNotifyResult(sec string, ptype string, rule []string) (policyWriteResult, error) {
 	defer e.bumpPolicyVersion()
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
-		return true, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
+		return policyWriteResult{added: true}, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
 	}
 
-	hasPolicy, err := e.model.HasPolicy(sec, ptype, rule)
+	hasPolicy, err := e.model.HasPolicyEx(sec, ptype, rule)
 	if hasPolicy || err != nil {
-		return false, err
+		return policyWriteResult{}, err
 	}
 
-	if e.shouldPersist() {
-		if err = e.adapter.AddPolicy(sec, ptype, rule); err != nil {
-			if err.Error() != notImplemented {
-				return false, err
-			}
+	if !e.shouldPersist() {
+		if err := e.applyNewPolicyRule(sec, ptype, rule, true); err != nil {
+			return policyWriteResult{}, err
 		}
+		return policyWriteResult{added: true}, nil
 	}
 
-	err = e.model.AddPolicy(sec, ptype, rule)
-	if err != nil {
-		return false, err
-	}
-
-	if sec == "g" {
-		err := e.BuildIncrementalRoleLinks(model.PolicyAdd, ptype, [][]string{rule})
-		if err != nil {
-			return true, err
-		}
-
-		// Validate constraints after adding grouping policy
-		if err := e.validateConstraintsForGroupingPolicy(); err != nil {
-			return false, err
-		}
-	}
-
-	return true, nil
+	return e.commitNewPolicyRule(
+		context.Background(),
+		sec,
+		ptype,
+		rule,
+		adapterPolicyStorage{adapter: e.adapter},
+		true,
+	)
 }
 
 // addPoliciesWithoutNotify adds rules to the current policy without notify
@@ -104,7 +95,7 @@ func (e *Enforcer) addPoliciesWithoutNotify(sec string, ptype string, rules [][]
 
 	if e.shouldPersist() {
 		if err := e.adapter.(persist.BatchAdapter).AddPolicies(sec, ptype, rules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -145,7 +136,7 @@ func (e *Enforcer) removePolicyWithoutNotify(sec string, ptype string, rule []st
 
 	if e.shouldPersist() {
 		if err := e.adapter.RemovePolicy(sec, ptype, rule); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -180,7 +171,7 @@ func (e *Enforcer) updatePolicyWithoutNotify(sec string, ptype string, oldRule [
 
 	if e.shouldPersist() {
 		if err := e.adapter.(persist.UpdatableAdapter).UpdatePolicy(sec, ptype, oldRule, newRule); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -222,7 +213,7 @@ func (e *Enforcer) updatePoliciesWithoutNotify(sec string, ptype string, oldRule
 
 	if e.shouldPersist() {
 		if err := e.adapter.(persist.UpdatableAdapter).UpdatePolicies(sec, ptype, oldRules, newRules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -266,7 +257,7 @@ func (e *Enforcer) removePoliciesWithoutNotify(sec string, ptype string, rules [
 
 	if e.shouldPersist() {
 		if err := e.adapter.(persist.BatchAdapter).RemovePolicies(sec, ptype, rules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -305,7 +296,7 @@ func (e *Enforcer) removeFilteredPolicyWithoutNotify(sec string, ptype string, f
 
 	if e.shouldPersist() {
 		if err := e.adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -345,7 +336,7 @@ func (e *Enforcer) updateFilteredPoliciesWithoutNotify(sec string, ptype string,
 
 	if e.shouldPersist() {
 		if oldRules, err = e.adapter.(persist.UpdatableAdapter).UpdateFilteredPolicies(sec, ptype, newRules, fieldIndex, fieldValues...); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return nil, err
 			}
 		}
@@ -395,8 +386,9 @@ func (e *Enforcer) updateFilteredPoliciesWithoutNotify(sec string, ptype string,
 
 // addPolicy adds a rule to the current policy.
 func (e *Enforcer) addPolicy(sec string, ptype string, rule []string) (bool, error) {
-	ok, err := e.logPolicyOperation(log.EventAddPolicy, sec, rule, func() (bool, error) {
-		return e.addPolicyWithoutNotify(sec, ptype, rule)
+	ok, err := e.logPolicyOperation(log.EventAddPolicy, sec, rule, func() (bool, []error, error) {
+		result, err := e.addPolicyWithoutNotifyResult(sec, ptype, rule)
+		return result.added, result.warnings, err
 	})
 
 	if !ok || err != nil {
@@ -440,8 +432,9 @@ func (e *Enforcer) addPolicies(sec string, ptype string, rules [][]string, autoR
 
 // removePolicy removes a rule from the current policy.
 func (e *Enforcer) removePolicy(sec string, ptype string, rule []string) (bool, error) {
-	ok, err := e.logPolicyOperation(log.EventRemovePolicy, sec, rule, func() (bool, error) {
-		return e.removePolicyWithoutNotify(sec, ptype, rule)
+	ok, err := e.logPolicyOperation(log.EventRemovePolicy, sec, rule, func() (bool, []error, error) {
+		removed, removeErr := e.removePolicyWithoutNotify(sec, ptype, rule)
+		return removed, nil, removeErr
 	})
 
 	if !ok || err != nil {

@@ -60,4 +60,7 @@ type LogEntry struct {
 
 	// Error contains any error that occurred during the event.
 	Error error
+
+	// Warnings contains non-fatal consistency or durability warnings.
+	Warnings []error
 }

@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	Err "github.com/casbin/casbin/v3/errors"
+	"github.com/casbin/casbin/v3/log"
 	"github.com/casbin/casbin/v3/model"
 	"github.com/casbin/casbin/v3/persist"
 )
@@ -416,38 +417,31 @@ func (e *ContextEnforcer) SelfUpdatePoliciesCtx(ctx context.Context, sec string,
 
 // addPolicyWithoutNotifyCtx adds a rule to the current policy with context.
 func (e *ContextEnforcer) addPolicyWithoutNotifyCtx(ctx context.Context, sec string, ptype string, rule []string) (bool, error) {
+	result, err := e.addPolicyWithoutNotifyResultCtx(ctx, sec, ptype, rule)
+	return result.added, err
+}
+
+func (e *ContextEnforcer) addPolicyWithoutNotifyResultCtx(ctx context.Context, sec string, ptype string, rule []string) (policyWriteResult, error) {
 	defer e.bumpPolicyVersion()
 
 	if e.dispatcher != nil && e.autoNotifyDispatcher {
-		return true, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
+		return policyWriteResult{added: true}, e.dispatcher.AddPolicies(sec, ptype, [][]string{rule})
 	}
 
-	hasPolicy, err := e.model.HasPolicy(sec, ptype, rule)
+	hasPolicy, err := e.model.HasPolicyEx(sec, ptype, rule)
 	if hasPolicy || err != nil {
-		return false, err
+		return policyWriteResult{}, err
 	}
 
-	if e.shouldPersist() {
-		if err = e.adapterCtx.AddPolicyCtx(ctx, sec, ptype, rule); err != nil {
-			if err.Error() != notImplemented {
-				return false, err
-			}
+	if !e.shouldPersist() {
+		if err := e.applyNewPolicyRule(sec, ptype, rule, false); err != nil {
+			return policyWriteResult{}, err
 		}
+		return policyWriteResult{added: true}, nil
 	}
 
-	err = e.model.AddPolicy(sec, ptype, rule)
-	if err != nil {
-		return false, err
-	}
-
-	if sec == "g" {
-		err := e.BuildIncrementalRoleLinks(model.PolicyAdd, ptype, [][]string{rule})
-		if err != nil {
-			return true, err
-		}
-	}
-
-	return true, nil
+	storage := contextPolicyStorage{ctx: ctx, adapter: e.adapterCtx}
+	return e.commitNewPolicyRule(ctx, sec, ptype, rule, storage, false)
 }
 
 // addPoliciesWithoutNotifyCtx adds rules to the current policy with context.
@@ -467,7 +461,7 @@ func (e *ContextEnforcer) addPoliciesWithoutNotifyCtx(ctx context.Context, sec s
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.(persist.ContextBatchAdapter).AddPoliciesCtx(ctx, sec, ptype, rules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -503,7 +497,7 @@ func (e *ContextEnforcer) removePolicyWithoutNotifyCtx(ctx context.Context, sec 
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.RemovePolicyCtx(ctx, sec, ptype, rule); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -538,7 +532,7 @@ func (e *ContextEnforcer) removePoliciesWithoutNotifyCtx(ctx context.Context, se
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.(persist.ContextBatchAdapter).RemovePoliciesCtx(ctx, sec, ptype, rules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -572,7 +566,7 @@ func (e *ContextEnforcer) removeFilteredPolicyWithoutNotifyCtx(ctx context.Conte
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.RemoveFilteredPolicyCtx(ctx, sec, ptype, fieldIndex, fieldValues...); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -603,7 +597,7 @@ func (e *ContextEnforcer) updatePolicyWithoutNotifyCtx(ctx context.Context, sec 
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.(persist.ContextUpdatableAdapter).UpdatePolicyCtx(ctx, sec, ptype, oldRule, newRule); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -640,7 +634,7 @@ func (e *ContextEnforcer) updatePoliciesWithoutNotifyCtx(ctx context.Context, se
 
 	if e.shouldPersist() {
 		if err := e.adapterCtx.(persist.ContextUpdatableAdapter).UpdatePoliciesCtx(ctx, sec, ptype, oldRules, newRules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return false, err
 			}
 		}
@@ -666,7 +660,10 @@ func (e *ContextEnforcer) updatePoliciesWithoutNotifyCtx(ctx context.Context, se
 }
 
 func (e *ContextEnforcer) addPolicyCtx(ctx context.Context, sec string, ptype string, rule []string) (bool, error) {
-	ok, err := e.addPolicyWithoutNotifyCtx(ctx, sec, ptype, rule)
+	ok, err := e.logPolicyOperation(log.EventAddPolicy, sec, rule, func() (bool, []error, error) {
+		result, addErr := e.addPolicyWithoutNotifyResultCtx(ctx, sec, ptype, rule)
+		return result.added, result.warnings, addErr
+	})
 	if !ok || err != nil {
 		return ok, err
 	}
@@ -833,7 +830,7 @@ func (e *ContextEnforcer) updateFilteredPoliciesWithoutNotifyCtx(ctx context.Con
 
 	if e.shouldPersist() {
 		if oldRules, err = e.adapter.(persist.ContextUpdatableAdapter).UpdateFilteredPoliciesCtx(ctx, sec, ptype, newRules, fieldIndex, fieldValues...); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return nil, err
 			}
 		}

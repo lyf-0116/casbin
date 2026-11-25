@@ -137,6 +137,14 @@ func (l *DefaultLogger) writeLog(entry *LogEntry) error {
 		logMessage = fmt.Sprintf("%s Error: %v\n", logMessage, entry.Error)
 	}
 
+	for _, warning := range entry.Warnings {
+		if warning == nil {
+			continue
+		}
+		logMessage = strings.TrimSuffix(logMessage, "\n")
+		logMessage = fmt.Sprintf("%s Warning: %v\n", logMessage, warning)
+	}
+
 	_, err := l.output.Write([]byte(logMessage))
 	return err
 }

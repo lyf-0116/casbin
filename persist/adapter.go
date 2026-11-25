@@ -112,6 +112,11 @@ type Adapter interface {
 
 	// AddPolicy adds a policy rule to the storage.
 	// This is part of the Auto-Save feature.
+	//
+	// Return or wrap ErrNotImplemented when incremental adds are unsupported.
+	// The enforcer compares that value with errors.Is; implement
+	// DegradedPolicyWriter to explicitly accept a memory-only fallback, or
+	// TransactionalAdapter when the write should participate in rollback.
 	AddPolicy(sec string, ptype string, rule []string) error
 	// RemovePolicy removes a policy rule from the storage.
 	// This is part of the Auto-Save feature.

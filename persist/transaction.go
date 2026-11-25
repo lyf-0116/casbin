@@ -27,6 +27,21 @@ type TransactionalAdapter interface {
 	BeginTransaction(ctx context.Context) (TransactionContext, error)
 }
 
+// DegradedPolicyWriter is an explicit declaration that an adapter is allowed
+// to complete a policy write in a weaker, non-durable mode when incremental
+// persistence returns ErrNotImplemented.
+//
+// Casbin fails closed when an adapter does not implement this interface (or
+// the method returns false). Adapters that can reconstruct state later, for
+// example by writing the complete model with SavePolicy, may return true and
+// surface the resulting degradation through Casbin's audit logger.
+type DegradedPolicyWriter interface {
+	Adapter
+	// AllowDegradedPolicyWrites reports whether memory-only policy writes are
+	// an accepted fallback for this adapter.
+	AllowDegradedPolicyWrites() bool
+}
+
 // TransactionContext represents a database transaction context.
 // It provides methods to commit or rollback the transaction and get an adapter
 // that operates within this transaction.

@@ -143,7 +143,7 @@ func (e *Enforcer) onLogAfterEventInEnforce(logEntry *log.LogEntry, allowed bool
 }
 
 // logPolicyOperation logs a policy operation (add or remove) with before and after events.
-func (e *Enforcer) logPolicyOperation(eventType log.EventType, sec string, rule []string, operation func() (bool, error)) (bool, error) {
+func (e *Enforcer) logPolicyOperation(eventType log.EventType, sec string, rule []string, operation func() (bool, []error, error)) (bool, error) {
 	var logEntry *log.LogEntry
 	if e.logger != nil && sec == "p" {
 		logEntry = &log.LogEntry{
@@ -153,9 +153,10 @@ func (e *Enforcer) logPolicyOperation(eventType log.EventType, sec string, rule 
 		_ = e.logger.OnBeforeEvent(logEntry)
 	}
 
-	ok, err := operation()
+	ok, warnings, err := operation()
 
 	if e.logger != nil && logEntry != nil {
+		logEntry.Warnings = warnings
 		if ok && err == nil {
 			logEntry.RuleCount = 1
 		} else {

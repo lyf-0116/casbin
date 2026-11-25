@@ -32,6 +32,8 @@ type Adapter struct {
 	Line string
 }
 
+var _ persist.DegradedPolicyWriter = (*Adapter)(nil)
+
 // NewAdapter is the constructor for Adapter.
 func NewAdapter(line string) *Adapter {
 	return &Adapter{
@@ -88,7 +90,7 @@ func (a *Adapter) SavePolicy(model model.Model) error {
 
 // AddPolicy adds a policy rule to the storage.
 func (a *Adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 // RemovePolicy removes a policy rule from the storage.
@@ -99,5 +101,11 @@ func (a *Adapter) RemovePolicy(sec string, ptype string, rule []string) error {
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
 func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
+}
+
+// AllowDegradedPolicyWrites declares that callers may retain an incremental
+// add in memory when the string adapter does not support AddPolicy.
+func (a *Adapter) AllowDegradedPolicyWrites() bool {
+	return true
 }

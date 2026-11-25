@@ -63,7 +63,7 @@ func (d *DistributedEnforcer) AddPoliciesSelf(shouldPersist func() bool, sec str
 			}
 		}
 
-		if err = d.adapter.(persist.BatchAdapter).AddPolicies(sec, ptype, noExistsPolicy); err != nil && err.Error() != notImplemented {
+		if err = d.adapter.(persist.BatchAdapter).AddPolicies(sec, ptype, noExistsPolicy); err != nil && !persist.IsNotImplemented(err) {
 			return nil, err
 		}
 	}
@@ -92,7 +92,7 @@ func (d *DistributedEnforcer) RemovePoliciesSelf(shouldPersist func() bool, sec 
 	defer d.m.Unlock()
 	if shouldPersist != nil && shouldPersist() {
 		if err = d.adapter.(persist.BatchAdapter).RemovePolicies(sec, ptype, rules); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return nil, err
 			}
 		}
@@ -122,7 +122,7 @@ func (d *DistributedEnforcer) RemoveFilteredPolicySelf(shouldPersist func() bool
 	defer d.m.Unlock()
 	if shouldPersist != nil && shouldPersist() {
 		if err = d.adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...); err != nil {
-			if err.Error() != notImplemented {
+			if !persist.IsNotImplemented(err) {
 				return nil, err
 			}
 		}

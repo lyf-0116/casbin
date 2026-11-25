@@ -19,11 +19,11 @@ package casbin
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	casbinerrors "github.com/casbin/casbin/v3/errors"
 	"github.com/casbin/casbin/v3/persist"
 	"github.com/google/uuid"
 )
@@ -56,7 +56,7 @@ func (te *TransactionalEnforcer) BeginTransaction(ctx context.Context) (*Transac
 	// Check if adapter supports transactions.
 	txAdapter, ok := te.adapter.(persist.TransactionalAdapter)
 	if !ok {
-		return nil, errors.New("adapter does not support transactions")
+		return nil, casbinerrors.ErrTransactionNotSupported
 	}
 
 	// Start database transaction.

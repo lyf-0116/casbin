@@ -34,16 +34,18 @@ type Adapter struct {
 	filePath string
 }
 
+var _ persist.DegradedPolicyWriter = (*Adapter)(nil)
+
 func (a *Adapter) UpdatePolicy(sec string, ptype string, oldRule, newRule []string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 func (a *Adapter) UpdatePolicies(sec string, ptype string, oldRules, newRules [][]string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 func (a *Adapter) UpdateFilteredPolicies(sec string, ptype string, newRules [][]string, fieldIndex int, fieldValues ...string) ([][]string, error) {
-	return nil, errors.New("not implemented")
+	return nil, persist.ErrNotImplemented
 }
 
 // NewAdapter is the constructor for Adapter.
@@ -133,25 +135,31 @@ func (a *Adapter) savePolicyFile(text string) error {
 
 // AddPolicy adds a policy rule to the storage.
 func (a *Adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 // AddPolicies adds policy rules to the storage.
 func (a *Adapter) AddPolicies(sec string, ptype string, rules [][]string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 // RemovePolicy removes a policy rule from the storage.
 func (a *Adapter) RemovePolicy(sec string, ptype string, rule []string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 // RemovePolicies removes policy rules from the storage.
 func (a *Adapter) RemovePolicies(sec string, ptype string, rules [][]string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
 func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
-	return errors.New("not implemented")
+	return persist.ErrNotImplemented
+}
+
+// AllowDegradedPolicyWrites declares that the file adapter may keep an
+// incremental AddPolicy in memory; SavePolicy writes the full model later.
+func (a *Adapter) AllowDegradedPolicyWrites() bool {
+	return true
 }
